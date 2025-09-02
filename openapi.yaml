@@ -1,0 +1,1124 @@
+openapi: 3.1.0
+info:
+  title: UniCareer API
+  version: 1.0.0
+  description: |
+    REST API для платформы UniCareer — поиск стажировок, коротких проектов и академических практик.
+
+    Роли: `guest`, `student`, `company`, `admin`.
+
+    Базовые принципы:
+      - Аутентификация: JWT (доступ + refresh), Bearer в заголовке `Authorization`.
+      - Версионирование: URL-префикс `/api/v1`.
+      - Формат: JSON (UTF-8). Даты/время — ISO 8601 (UTC, например `2025-09-02T10:30:00Z`).
+      - Пагинация: cursor или page-based (по умолчанию page-based) с метаданными.
+      - Файлы: загрузка через pre-signed URL (S3/MinIO). В БД хранится путь/метаданные.
+      - Идемпотентность: для чувствительных POST предусмотрен заголовок `Idempotency-Key`.
+      - Безопасность: rate limiting, валидация, RBAC по ролям, CORS, HTTPS only.
+      - Локализация: заголовок `Accept-Language` — влияет на текст уведомлений/шаблонов email.
+servers:
+  - url: https://api.unicareer.example.com/api/v1
+    description: Production
+  - url: https://staging.api.unicareer.example.com/api/v1
+    description: Staging
+
+security:
+  - bearerAuth: []
+
+x-rate-limit:
+  description: | 
+    См. ответные заголовки: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Healthcheck
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  ############################
+  # Auth
+  ############################
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация пользователя (student/company)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201': { description: Создано, письмо подтверждения отправлено, без токенов }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /auth/verify-email:
+    post:
+      tags: [Auth]
+      summary: Подтверждение email по токену из письма
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200': { description: Email подтверждён }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '410': { description: Токен истёк }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Логин по email + password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успех, возвращает пары токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokens'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Обновление access-токена по refresh
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200': { description: Новый access-токен, возможно новый refresh, схема AuthTokens, content как в /auth/login }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выход (инвалидация refresh)
+      responses:
+        '204': { description: Успешно }
+
+  /auth/request-password-reset:
+    post:
+      tags: [Auth]
+      summary: Запрос на сброс пароля
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200': { description: Письмо отправлено (всегда 200 для безопасности) }
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Сброс пароля по токену
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token: { type: string }
+                newPassword: { type: string, minLength: 8 }
+      responses:
+        '200': { description: Пароль изменён }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  ############################
+  # Users / Profiles
+  ############################
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Текущий пользователь
+      responses:
+        '200':
+          description: Профиль текущего пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMe'
+    put:
+      tags: [Users]
+      summary: Обновить базовые поля пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '200': { description: Обновлён, возвращает UserMe }
+
+  /users/me/avatar:
+    post:
+      tags: [Users]
+      summary: Получить pre-signed URL для загрузки аватара
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignRequest'
+      responses:
+        '201':
+          description: Пресайн на загрузку
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignResponse'
+
+  /students/me:
+    get:
+      tags: [Students]
+      summary: Профиль студента
+      responses:
+        '200': { description: OK, schema StudentProfile }
+    put:
+      tags: [Students]
+      summary: Обновить профиль студента (вкл. навыки)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentProfileUpdate'
+      responses:
+        '200': { description: Обновлено }
+
+  /students/me/resume:
+    post:
+      tags: [Students]
+      summary: Pre-signed URL для загрузки резюме (PDF/DOCX)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignRequest'
+      responses:
+        '201': { description: Пресайн, вернуть PresignResponse }
+
+  /companies/me:
+    get:
+      tags: [Companies]
+      summary: Профиль компании (текущего пользователя)
+      responses:
+        '200': { description: OK, schema CompanyProfile }
+    put:
+      tags: [Companies]
+      summary: Обновить профиль компании
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyProfileUpdate'
+      responses:
+        '200': { description: Обновлено }
+
+  ############################
+  # Tags
+  ############################
+  /tags:
+    get:
+      tags: [Taxonomy]
+      summary: Список тегов (навыков/меток)
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200': { $ref: '#/components/responses/PaginatedTags' }
+
+  /tags/popular:
+    get:
+      tags: [Taxonomy]
+      summary: Популярные теги
+      responses:
+        '200':
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Tag' }
+
+  ############################
+  # Jobs
+  ############################
+  /jobs:
+    get:
+      tags: [Jobs]
+      summary: Поиск/выдача вакансий
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - in: query
+          name: tags
+          description: Список тегов (через запятую или повторяемый параметр)
+          schema: { type: array, items: { type: string }, style: form, explode: true }
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { $ref: '#/components/schemas/JobType' }
+        - in: query
+          name: remote
+          schema: { type: boolean }
+        - in: query
+          name: salary_from
+          schema: { type: integer, minimum: 0 }
+        - in: query
+          name: salary_to
+          schema: { type: integer, minimum: 0 }
+        - in: query
+          name: sort
+          description: критерий сортировки
+          schema:
+            type: string
+            enum: [newest, salary_desc, salary_asc, relevance]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200': { $ref: '#/components/responses/PaginatedJobs' }
+    post:
+      tags: [Jobs]
+      summary: Создать вакансию (company)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JobCreateRequest' }
+      responses:
+        '201': { description: Создано, возвращает Job, статус `draft` или `pending_review` }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /jobs/saved:
+    get:
+      tags: [Jobs]
+      summary: Сохранённые вакансии студента
+      responses:
+        '200': { $ref: '#/components/responses/PaginatedJobs' }
+
+  /jobs/{id}:
+    get:
+      tags: [Jobs]
+      summary: Детали вакансии
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Jobs]
+      summary: Обновить вакансию (владелец компании или admin)
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JobUpdateRequest' }
+      responses:
+        '200': { description: Обновлено }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Jobs]
+      summary: Удалить вакансию (company/admin)
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '204': { description: Удалено }
+
+  /jobs/{id}/publish:
+    post:
+      tags: [Jobs]
+      summary: Публикация вакансии (после модерации)
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: Опубликовано }
+        '409': { description: Неверный статус для публикации }
+
+  /jobs/{id}/archive:
+    post:
+      tags: [Jobs]
+      summary: Архивировать вакансию
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: Архивировано }
+
+  /jobs/{id}/save:
+    put:
+      tags: [Jobs]
+      summary: Сохранить вакансию (избранное студента)
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '204': { description: Сохранено }
+    delete:
+      tags: [Jobs]
+      summary: Удалить из сохранённых
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '204': { description: Удалено }
+
+  /jobs/{id}/apply:
+    post:
+      tags: [Applications]
+      summary: Отклик студента на вакансию
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplicationCreateRequest' }
+      responses:
+        '201': { description: Отклик создан, возвращает Application }
+        '409': { description: Повторный отклик запрещён }
+
+  ############################
+  # Applications
+  ############################
+  /applications:
+    get:
+      tags: [Applications]
+      summary: Список откликов
+      description: |
+        Для студента — собственные отклики.
+        Для компании — отклики на её вакансии, опционально фильтр по job_id.
+      parameters:
+        - in: query
+          name: job_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/ApplicationStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200': { $ref: '#/components/responses/PaginatedApplications' }
+
+  /applications/{id}:
+    get:
+      tags: [Applications]
+      summary: Детали отклика
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Application' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Applications]
+      summary: Изменить статус отклика (company/admin)
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { $ref: '#/components/schemas/ApplicationStatus' }
+                companyNote: { type: string, maxLength: 1000 }
+      responses:
+        '200': { description: Обновлено }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  ############################
+  # Notifications
+  ############################
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: Список уведомлений пользователя
+      parameters: [ { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' } ]
+      responses:
+        '200': { $ref: '#/components/responses/PaginatedNotifications' }
+  /notifications/{id}/read:
+    patch:
+      tags: [Notifications]
+      summary: Отметить уведомление прочитанным
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '204': { description: OK }
+  /notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Пометить все уведомления прочитанными
+      responses:
+        '204': { description: OK }
+
+  ############################
+  # Admin
+  ############################
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: Список пользователей (поиск/фильтры)
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - in: query
+          name: role
+          schema: { $ref: '#/components/schemas/Role' }
+        - in: query
+          name: is_active
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200': { $ref: '#/components/responses/PaginatedUsers' }
+
+  /admin/users/{id}:
+    get:
+      tags: [Admin]
+      summary: Детали пользователя
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { content: { application/json: { schema: { $ref: '#/components/schemas/UserAdminView' } } } }
+    patch:
+      tags: [Admin]
+      summary: Обновить пользователя (бан/разбан, роль)
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_active: { type: boolean }
+                role: { $ref: '#/components/schemas/Role' }
+      responses:
+        '200': { description: Обновлено }
+
+  /admin/companies:
+    get:
+      tags: [Admin]
+      summary: Компании на модерации/все
+      parameters:
+        - in: query
+          name: verified
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200': { $ref: '#/components/responses/PaginatedCompanies' }
+
+  /admin/companies/{id}/verify:
+    post:
+      tags: [Admin]
+      summary: Подтвердить/снять подтверждение компании
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                verified: { type: boolean }
+      responses:
+        '200': { description: Обновлено }
+
+  /admin/jobs:
+    get:
+      tags: [Admin]
+      summary: Модерация вакансий
+      parameters:
+        - in: query
+          name: status
+          schema: { $ref: '#/components/schemas/JobStatus' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200': { $ref: '#/components/responses/PaginatedJobs' }
+
+  /admin/jobs/{id}/moderate:
+    post:
+      tags: [Admin]
+      summary: Решение модерации вакансии
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject]
+                reason:
+                  type: string
+                  description: Причина отклонения (если reject)
+      responses:
+        '200': { description: Статус обновлён }
+
+  /admin/stats:
+    get:
+      tags: [Admin]
+      summary: Сводная статистика платформы
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminStats' }
+
+  /admin/export/applications:
+    post:
+      tags: [Admin]
+      summary: Экспорт откликов (CSV/PDF)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum: [csv, pdf]
+                date_from: { type: string, format: date }
+                date_to: { type: string, format: date }
+      responses:
+        '202': { description: Экспорт поставлен в очередь, уведомление придёт по готовности }
+
+  ############################
+  # Recommendations (optional)
+  ############################
+  /recommendations/jobs:
+    get:
+      tags: [Recommendations]
+      summary: Рекомендованные вакансии для студента
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Job' }
+
+  ############################
+  # Files (presign generic)
+  ############################
+  /files/presign:
+    post:
+      tags: [Files]
+      summary: Пресайн на загрузку произвольного файла (ограниченные типы)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PresignRequest' }
+      responses:
+        '201': { description: Пресайн, вернуть PresignResponse }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: per_page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Q:
+      name: q
+      in: query
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Неверные данные
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Неавторизован
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Недостаточно прав
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Не найдено
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Конфликт/дубликат
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+    PaginatedJobs:
+      description: Пагинированный список вакансий
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PaginatedJobs'
+    PaginatedApplications:
+      description: Пагинированный список откликов
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PaginatedApplications'
+    PaginatedNotifications:
+      description: Пагинированный список уведомлений
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PaginatedNotifications'
+    PaginatedUsers:
+      description: Пагинированный список пользователей
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PaginatedUsers'
+    PaginatedCompanies:
+      description: Пагинированный список компаний
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PaginatedCompanies'
+    PaginatedTags:
+      description: Пагинированный список тегов
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PaginatedTags'
+
+  schemas:
+    ############################
+    # Base / common
+    ############################
+    Health:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+        timestamp: { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        code: { type: string, example: VALIDATION_ERROR }
+        message: { type: string }
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              issue: { type: string }
+
+    Role:
+      type: string
+      enum: [guest, student, company, admin]
+
+    JobType:
+      type: string
+      enum: [internship, project, practice, contest]
+
+    JobStatus:
+      type: string
+      enum: [draft, pending_review, published, archived]
+
+    ApplicationStatus:
+      type: string
+      enum: [submitted, under_review, accepted, rejected]
+
+    NotificationType:
+      type: string
+      enum: [application_submitted, application_status_changed, job_published, company_verified, system]
+
+    PaginationMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        total_pages: { type: integer }
+
+    ############################
+    # Auth
+    ############################
+    RegisterRequest:
+      type: object
+      required: [email, password, role]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        role: { $ref: '#/components/schemas/Role' }
+        fullName: { type: string, description: Для role=student }
+        companyName: { type: string, description: Для role=company }
+        consentToPolicy: { type: boolean }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    AuthTokens:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn: { type: integer, description: Секунды жизни access }
+
+    ############################
+    # Users / Profiles
+    ############################
+    UserMe:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        student: { $ref: '#/components/schemas/StudentProfile', nullable: true }
+        company: { $ref: '#/components/schemas/CompanyProfile', nullable: true }
+    UserUpdateRequest:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8 }
+        locale: { type: string, example: ru-RU }
+
+    StudentProfile:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fullName: { type: string }
+        university: { type: string }
+        faculty: { type: string }
+        course: { type: integer, minimum: 1, maximum: 7 }
+        phone: { type: string }
+        about: { type: string, maxLength: 2000 }
+        resumePath: { type: string, nullable: true }
+        skills:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
+    StudentProfileUpdate:
+      type: object
+      properties:
+        fullName: { type: string }
+        university: { type: string }
+        faculty: { type: string }
+        course: { type: integer, minimum: 1, maximum: 7 }
+        phone: { type: string }
+        about: { type: string, maxLength: 2000 }
+        skills:
+          type: array
+          items: { type: string }
+
+    CompanyProfile:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        website: { type: string, format: uri, nullable: true }
+        description: { type: string, maxLength: 2000 }
+        verified: { type: boolean }
+        contactPerson: { type: string }
+        logoPath: { type: string, nullable: true }
+    CompanyProfileUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        website: { type: string, format: uri }
+        description: { type: string, maxLength: 2000 }
+        contactPerson: { type: string }
+        logoPath: { type: string }
+
+    ############################
+    # Tags
+    ############################
+    Tag:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    ############################
+    # Jobs
+    ############################
+    Job:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        companyId: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        requirements: { type: string }
+        type: { $ref: '#/components/schemas/JobType' }
+        city: { type: string }
+        remote: { type: boolean }
+        salaryFrom: { type: integer, nullable: true }
+        salaryTo: { type: integer, nullable: true }
+        cityGeo: { type: string, description: 'lat,lon или ссылочный код' , nullable: true }
+        tags:
+          type: array
+          items: { $ref: '#/components/schemas/Tag' }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        views: { type: integer }
+        savedCount: { type: integer }
+        company:
+          $ref: '#/components/schemas/CompanyProfile'
+    JobCreateRequest:
+      type: object
+      required: [title, description, type]
+      properties:
+        title: { type: string, minLength: 5, maxLength: 200 }
+        description: { type: string, minLength: 30 }
+        requirements: { type: string }
+        type: { $ref: '#/components/schemas/JobType' }
+        city: { type: string }
+        remote: { type: boolean, default: false }
+        salaryFrom: { type: integer, minimum: 0, nullable: true }
+        salaryTo: { type: integer, minimum: 0, nullable: true }
+        tags:
+          type: array
+          items: { type: string }
+        expiresAt: { type: string, format: date-time, nullable: true }
+    JobUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/JobCreateRequest'
+
+    ############################
+    # Applications
+    ############################
+    Application:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        jobId: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        message: { type: string, maxLength: 2000 }
+        resumeSnapshotPath: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ApplicationStatus' }
+        createdAt: { type: string, format: date-time }
+        student:
+          $ref: '#/components/schemas/StudentProfile'
+        job:
+          $ref: '#/components/schemas/Job'
+    ApplicationCreateRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, maxLength: 2000 }
+        resumeSnapshotPath: { type: string, nullable: true }
+
+    ############################
+    # Notifications
+    ############################
+    Notification:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        payload:
+          type: object
+          additionalProperties: true
+        read: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    ############################
+    # Admin
+    ############################
+    UserAdminView:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        lastLoginAt: { type: string, format: date-time, nullable: true }
+        student: { $ref: '#/components/schemas/StudentProfile', nullable: true }
+        company: { $ref: '#/components/schemas/CompanyProfile', nullable: true }
+
+    AdminStats:
+      type: object
+      properties:
+        totals:
+          type: object
+          properties:
+            users: { type: integer }
+            students: { type: integer }
+            companies: { type: integer }
+            jobs: { type: integer }
+            applications: { type: integer }
+        last7d:
+          type: object
+          properties:
+            newJobs: { type: integer }
+            newApplications: { type: integer }
+            newUsers: { type: integer }
+
+    AdminLog:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        adminId: { type: string, format: uuid }
+        action: { type: string }
+        target: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    ############################
+    # Files / Presign
+    ############################
+    PresignRequest:
+      type: object
+      required: [filename, contentType]
+      properties:
+        filename: { type: string }
+        contentType: { type: string, enum: ['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','image/png','image/jpeg'] }
+        maxSizeBytes: { type: integer, default: 5242880 }
+        folder: { type: string, example: 'resumes/' }
+    PresignResponse:
+      type: object
+      properties:
+        uploadUrl: { type: string, format: uri }
+        method: { type: string, enum: [PUT, POST] }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        publicUrl: { type: string, format: uri }
+
+    ############################
+    # Pagination wrappers
+    ############################
+    PaginatedJobs:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Job' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    PaginatedApplications:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Application' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    PaginatedNotifications:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Notification' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    PaginatedUsers:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/UserAdminView' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    PaginatedCompanies:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CompanyProfile' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+    PaginatedTags:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Tag' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+x-permissions:
+  description: |
+    Ограничения по ролям (основные правила):
+      - guest: чтение публичных вакансий, регистрация/логин, health.
+      - student: всё guest + управление своим профилем, сохранение вакансий, отклики, уведомления.
+      - company: всё guest + CRUD своих вакансий, просмотр откликов на свои вакансии.
+      - admin: полный доступ к /admin, удаление/архивация вакансий, управление пользователями.
+
+x-errors:
+  common:
+    - code: VALIDATION_ERROR
+      when: Неверные поля запроса
+      http: 400
+    - code: AUTH_INVALID_CREDENTIALS
+      when: Неверный email или пароль
+      http: 401
+    - code: AUTH_EMAIL_NOT_VERIFIED
+      when: Email не подтверждён
+      http: 403
+    - code: RESOURCE_NOT_FOUND
+      when: Сущность не найдена
+      http: 404
+    - code: CONFLICT_DUPLICATE
+      when: Дубликат (например, повторный отклик)
+      http: 409
+    - code: RATE_LIMITED
+      when: Превышен лимит запросов
+      http: 429
+
+# x-notes:
+#   - Для очередей (email/экспорт) используйте Redis + Bull. События: `application.created`, `application.status_changed`, `job.published`, `company.verified`.
+#   - Audit trail пишите в `admin_logs` со ссылками на цель (`target` в форме `jobs:{id}`, `users:{id}`).
+#   - Индексация: `jobs(title, description, tags, city)`, полнотекст по 
+#     `title, description, requirements`, отдельный GIN по массиву тегов.
+#   - Рекомендации (MVP): базовый matching по пересечению `skills` студента и `tags` вакансии.
+#   - GDPR: реализовать экспорт/удаление данных пользователя (эндпоинты могут быть добавлены как `/users/me/export` и `/users/me/delete` после подтверждения email).
