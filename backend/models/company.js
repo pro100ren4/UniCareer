@@ -10,11 +10,18 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      Company.hasOne(models.User, 
+      Company.belongsTo(models.User, 
         {
           foreignKey: 'user_id',
           as: 'user',
           onDelete: 'CASCADE',
+        }
+      )
+      Company.hasMany(models.Job,
+        {
+          foreignKey: 'company_id',
+          as: 'job',
+          onDelete: 'CASCADE'
         }
       )
     }

@@ -10,10 +10,17 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      Job.hasOne(models.Company,
+      Job.belongsTo(models.Company,
         {
           foreignKey: 'company_id',
           as: 'company',
+          onDelete: 'CASCADE'
+        }
+      )
+      Job.hasMany(models.Application,
+        {
+          foreignKey: 'job_id',
+          as: 'application',
           onDelete: 'CASCADE'
         }
       )
@@ -53,7 +60,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     status: { 
       defaultValue: 'active',
-      type: DataTypes.ENUM('active','closed','draft','moderation'),
+      type: DataTypes.ENUM('active','closed','draft','moderation')
     },
   }, {
     sequelize,

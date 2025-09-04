@@ -10,7 +10,34 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      /* Don't have any associations */
+      User.hasOne(models.Student,
+        {
+          foreignKey: 'user_id',
+          as: 'student',
+          onDelete: 'CASCADE',
+        }
+      )
+      User.hasOne(models.Company,
+        {
+          foreignKey: 'user_id',
+          as: 'company',
+          onDelete: 'CASCADE',
+        }
+      )
+      User.hasMany(models.AdminLog,
+        {
+          foreignKey: 'admin_id',
+          as: 'log',
+          onDelete: 'CASCADE'
+        }
+      )
+      User.hasMany(models.Notification,
+        {
+          foreignKey: 'user_id',
+          as: 'notification',
+          onDelete: 'CASCADE'
+        }
+      )
     }
   }
   User.init({
