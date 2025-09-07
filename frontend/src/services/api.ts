@@ -1,16 +1,20 @@
-import axios from "axios";
-import { useAuthStore } from "../store/authStore";
+import axios from "axios"
+import { useAuthStore } from "../store/authStore"
 
 const api = axios.create({
-  baseURL: "http://localhost:5000/api",
-});
+  baseURL: "http://localhost:5050/api",
+})
 
-api.interceptors.request.use((config) => {
+api.interceptors.request.use((config: any) => {
   const token = useAuthStore.getState().token;
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (token) {
+    config.headers = {
+      ...config.headers,
+      Authorization: `Bearer ${token}`
+    }
   }
   return config;
-});
+})
 
-export default api;
+
+export default api
