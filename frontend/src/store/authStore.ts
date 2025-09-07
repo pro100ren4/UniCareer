@@ -1,21 +1,26 @@
-import { create } from "zustand";
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-}
+import { create } from "zustand"
+import axios from "axios"
 
 interface AuthState {
-  user: User | null;
-  token: string | null;
-  login: (user: User, token: string) => void;
-  logout: () => void;
+  token: string | null
+  isAuthenticated: boolean
+  login: (email: string, password: string) => Promise<void>
+  logout: () => void
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
   token: null,
-  login: (user, token) => set({ user, token }),
-  logout: () => set({ user: null, token: null }),
-}));
+  isAuthenticated: false,
+
+  login: async (email, password) => {
+    const res = await axios.post("http://localhost/api/auth/login", { email, password })
+    const token = res.data.token
+    set({ token, isAuthenticated: true })
+    localStorage.setItem("token", token)
+  },
+
+  logout: () => {
+    set({ token: null, isAuthenticated: false })
+    localStorage.removeItem("token")
+  },
+}))
