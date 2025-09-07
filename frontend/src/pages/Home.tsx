@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 const Home = () => {
   const [text, setText] = useState() 
   const getText = async () => {
-    const resp = await axios.get("http://localhost:5050/")
+    const resp = await axios.get("/api/")
     setText(resp.data)
   }
 

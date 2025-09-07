@@ -14,7 +14,7 @@ app.use(morgan('dev'))
 
 // Разрешаем CORS для фронтенда
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'http://localhost',
   credentials: true
 }))
 
