@@ -1,8 +1,8 @@
 import axios from "axios"
 import { useEffect, useState } from "react"
 
-const Home = () => {
-  const [text, setText] = useState() 
+const Dashboard = () => {
+  const [text, setText] = useState()
   const getText = async () => {
     const resp = await axios.get("/api/")
     setText(resp.data)
@@ -19,4 +19,4 @@ const Home = () => {
   )
 }
 
-export default Home
+export default Dashboard
