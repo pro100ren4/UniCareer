@@ -1,23 +1,37 @@
-'use strict';
+import { readdirSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, basename as _basename, join } from 'path';
+import { Sequelize, DataTypes } from 'sequelize';
 
-const fs = require('fs');
-const path = require('path');
-const Sequelize = require('sequelize');
-const process = require('process');
-const basename = path.basename(__filename);
+// Получаем __filename и __dirname для ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const basename = _basename(__filename);
+
+// Динамически импортируем конфиг (JSON файл)
+const configPath = join(__dirname, '..', 'config', 'config.json');
+const configData = await import(configPath, { assert: { type: 'json' } });
+const config = configData.default;
+
 const env = process.env.NODE_ENV || 'development';
-const config = require(__dirname + '/../config/config.json')[env];
+const dbConfig = config[env];
+
+export const sequelize = new Sequelize(
+  dbConfig.database,
+  dbConfig.username,
+  dbConfig.password,
+  {
+    host: dbConfig.host,
+    dialect: dbConfig.dialect,
+    storage: dbConfig.storage,
+    logging: console.log
+  }
+);
+
 const db = {};
 
-let sequelize;
-if (config.use_env_variable) {
-  sequelize = new Sequelize(process.env[config.use_env_variable], config);
-} else {
-  sequelize = new Sequelize(config.database, config.username, config.password, config);
-}
-
-fs
-  .readdirSync(__dirname)
+// Читаем все файлы моделей
+const modelFiles = readdirSync(__dirname)
   .filter(file => {
     return (
       file.indexOf('.') !== 0 &&
@@ -25,12 +39,17 @@ fs
       file.slice(-3) === '.js' &&
       file.indexOf('.test.js') === -1
     );
-  })
-  .forEach(file => {
-    const model = require(path.join(__dirname, file))(sequelize, Sequelize.DataTypes);
-    db[model.name] = model;
   });
 
+// Динамически импортируем и добавляем модели
+for (const file of modelFiles) {
+  const modelModule = await import(join(__dirname, file));
+  const model = modelModule.default(sequelize, DataTypes);
+  // console.log(model.name)
+  db[model.name] = model;
+}
+
+// Устанавливаем ассоциации
 Object.keys(db).forEach(modelName => {
   if (db[modelName].associate) {
     db[modelName].associate(db);
@@ -40,4 +59,4 @@ Object.keys(db).forEach(modelName => {
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
 
-module.exports = db;
+export default db;
