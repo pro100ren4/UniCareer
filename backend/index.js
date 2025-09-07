@@ -1,9 +1,9 @@
 const express = require('express')
 const helmet = require('helmet')
 const morgan = require('morgan')
+const cors = require('cors')
 
 const app = express()
-
 
 // Начальная конфигурация
 
@@ -11,6 +11,12 @@ const app = express()
 app.use(helmet())
 // Логирование запросов к backend
 app.use(morgan('dev'))
+
+// Разрешаем CORS для фронтенда
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
+}))
 
 app.get('/', (req, res) => {
     res.send("<h1>In Development</h1>")
