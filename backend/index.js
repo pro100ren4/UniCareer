@@ -4,6 +4,7 @@ import express from 'express'
 import helmet from 'helmet'
 import morgan from 'morgan'
 
+import { checkAuthMiddleware } from './controllers/AuthController.js'
 import { AuthRouter } from './routers/AuthRouter.js'
 
 const app = express()
@@ -16,7 +17,6 @@ const app = express()
 app.use(helmet())
 // Логирование запросов к backend
 app.use(morgan('dev'))
-
 // Разрешаем CORS для фронтенда
 app.use(
   cors({
@@ -24,7 +24,6 @@ app.use(
     credentials: true
   })
 )
-
 // Доступ к body как к js объкту
 app.use(bodyParser.json())
 
@@ -32,7 +31,7 @@ app.use(bodyParser.json())
 /* #        Роутинг         # */
 /* ########################## */
 
-app.get('/', (req, res) => {
+app.get('/', checkAuthMiddleware, (req, res) => {
   res.send('<h1>In Development</h1>')
 })
 

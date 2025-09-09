@@ -7,5 +7,3 @@ export const AuthRouter = Router()
 
 // AuthRouter endpoints
 AuthRouter.post('/register', registerNewUser)
-
-// export default { AuthRouter };
