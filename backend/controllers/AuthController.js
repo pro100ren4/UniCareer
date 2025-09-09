@@ -1,7 +1,27 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import nodemailer from 'nodemailer'
 
 import db from '../models/index.js'
+
+/**
+ * TODO:
+ * - Подтверждение почты
+ * - Сброс пороля по почте
+ * FIXME:
+ * - Исправить логику работы refresh токенов
+ */
+
+async function generateTokens(user) {
+  const accessToken = jwt.sign({ id: user.id, email: user.email }, 'ACCESS_JWT_SECRET_KEY', { expiresIn: '15m' })
+  const refreshToken = jwt.sign({ id: user.id, email: user.email }, 'REFRESH_JWT_SECRET_KEY', { expiresIn: '1d' })
+  // XXX: Следует удалить expires_at поле из Модели, потому что эта информация
+  // хранится непосредственно в токене
+  const date = new Date()
+  date.setDate(date.getDate() + 1)
+  await db['RefreshToken'].create({ token: refreshToken, expires_at: date.toISOString().split('T')[0] })
+  return { accessToken, refreshToken }
+}
 
 /* REQUEST HANDLERS */
 export async function registerNewUser(req, res) {
@@ -39,8 +59,29 @@ export async function registerNewUser(req, res) {
     is_active: true
   })
 
-  const token = jwt.sign({ id: user.id, email: user.email }, 'JWT_SERCRET_KEY', { expiresIn: '1d' })
-  res.status(201).json({ token })
+  if (role === 'student') {
+    const { fullName } = req.body
+    const student = await db['Student'].create({
+      user_id: user.id,
+      full_name: fullName,
+      university: 'None',
+      course: 1
+    })
+  } else if (role === 'company') {
+    const { companyName } = req.body
+    const company = await db['Company'].create({
+      user_id: user.id,
+      name: companyName
+    })
+  }
+
+  const { refreshToken, accessToken } = await generateTokens(user)
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: false, // true для HTTPS
+    sameSite: 'strict'
+  })
+  res.status(201).json({ accessToken, refreshToken })
 }
 
 export async function loginUser(req, res) {
@@ -69,7 +110,7 @@ export async function loginUser(req, res) {
     })
   }
 
-  const isPasswordValid = await bcrypt.compare(user.password_hash, password)
+  const isPasswordValid = await bcrypt.compare(password, user.password_hash)
   if (!isPasswordValid) {
     return res.status(401).json({
       code: 'VALIDATION_ERROR',
@@ -77,8 +118,42 @@ export async function loginUser(req, res) {
     })
   }
 
-  const token = jwt.sign({ id: user.id, email: user.email }, 'JWT_SERCRET_KEY', { expiresIn: '1d' })
-  return res.status(200).json({ token })
+  const { refreshToken, accessToken } = await generateTokens(user)
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: false, // true для HTTPS
+    sameSite: 'strict'
+  })
+  res.status(200).json({ accessToken, refreshToken })
+}
+
+export async function refreshToken(req, res) {
+  const refreshToken = req.cookies.refreshToken
+  if (!refreshToken) {
+    res.sendStatus(401)
+  }
+  const isRefreshTokenValid = await db['RefreshToken'].findOne({ where: { token: refreshToken } })
+  if (!isRefreshTokenValid) {
+    return res.sendStatus(401)
+  }
+
+  jwt.verify(refreshToken, 'REFRESH_JWT_SECRET_KEY', (err, user) => {
+    if (err) return res.sendStatus(401)
+
+    const accessToken = jwt.sign({ id: user.id, email: user.email }, 'ACCESS_JWT_SECRET_KEY', { expiresIn: '15m' })
+    return res.status(204).json({ accessToken })
+  })
+}
+
+export async function logoutUser(req, res) {
+  const refreshToken = req.cookies.refreshToken
+  await db['RefreshToken'].destroy({
+    where: {
+      token: refreshToken
+    }
+  })
+  res.clearCookie('refreshToken')
+  res.status(204)
 }
 
 /* MIDDLEWARES */

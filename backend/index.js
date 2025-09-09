@@ -1,4 +1,5 @@
 import bodyParser from 'body-parser'
+import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import express from 'express'
 import helmet from 'helmet'
@@ -17,6 +18,8 @@ const app = express()
 app.use(helmet())
 // Логирование запросов к backend
 app.use(morgan('dev'))
+// Работа с Coockie
+app.use(cookieParser())
 // Разрешаем CORS для фронтенда
 app.use(
   cors({
@@ -30,6 +33,9 @@ app.use(bodyParser.json())
 /* ########################## */
 /* #        Роутинг         # */
 /* ########################## */
+app.get('/health', (req, res) => {
+  return res.status(200).json({ status: 'ok' })
+})
 
 app.get('/', checkAuthMiddleware, (req, res) => {
   res.send('<h1>In Development</h1>')
