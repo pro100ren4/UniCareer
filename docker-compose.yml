@@ -29,23 +29,39 @@ services:
       - DB_PASSWORD=postgres
       - DB_NAME=postgres
       - PORT=5050
-    command: ["npm", "run", "dev"]
+    command: ["npm", "run", "dev:debug"]
     expose:
       - "5050"
     depends_on:
       - db
+      - mailhog
 
   db:
     image: postgres:latest
     restart: unless-stopped
     ports:
       - "5432:5432"
+      - "9229:9229"  # порт для отладки
     volumes:
       - postgres-data:/var/lib/postgresql/data
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
       POSTGRES_DB: postgres
+  
+  mailhog:
+    image: mailhog/mailhog
+    container_name: mailhog
+    ports:
+      - "1025:1025" # SMTP порт
+      - "8025:8025" # Web UI
+  
+  # mongo:
+  #   image: mongo
+  #   restart: always
+  #   enviroment:
+  #     MONGO_INITDB_ROOT_USERNAME: root
+  #     MONGO_INITDB_ROOT_PASSWORD: example
 
   nginx:
     image: nginx:latest

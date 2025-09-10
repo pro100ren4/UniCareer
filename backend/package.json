@@ -4,7 +4,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "npx nodemon index.js"
+    "dev": "npx nodemon index.js",
+    "dev:debug": "npx nodemon --inspect=0.0.0.0:9229 index.js"
   },
   "author": "",
   "license": "ISC",

@@ -4,13 +4,19 @@ import nodemailer from 'nodemailer'
 
 import db from '../models/index.js'
 
-/**
- * TODO:
- * - Подтверждение почты
- * - Сброс пороля по почте
- * FIXME:
- * - Исправить логику работы refresh токенов
- */
+// TODO:
+// - Подтверждение почты
+// - Сброс пороля по почте
+// FIXME:
+// - Исправить логику работы refresh токенов. Возможно следует вынести токены
+// в MongoDB?
+// - Вездесущий try catch надо добавить
+
+const transporter = nodemailer.createTransport({
+  host: 'mailhog',
+  port: 1025,
+  secure: false // Mailhog не требует TLS
+})
 
 async function generateTokens(user) {
   const accessToken = jwt.sign({ id: user.id, email: user.email }, 'ACCESS_JWT_SECRET_KEY', { expiresIn: '15m' })
@@ -74,6 +80,19 @@ export async function registerNewUser(req, res) {
       name: companyName
     })
   }
+
+  // console.log(user, user.email)
+
+  const emailVerificationToken = jwt.sign({ email: user.email }, 'EMAIL_JWT_SERCRET_KEY', { expiresIn: '1d' })
+  // FIXME: Исправить URL с API на Frontend
+  const emailVerificationUrl = `http://localhost/api/auth/verify-email?token=${emailVerificationToken}`
+
+  await transporter.sendMail({
+    from: '"Test App" <noreply@example.com>',
+    to: user.email,
+    subject: 'Подтверждение почты',
+    html: `Для подтверждения почты перейдите по ссылке: <a href="${emailVerificationUrl}">${emailVerificationUrl}</a>`
+  })
 
   const { refreshToken, accessToken } = await generateTokens(user)
   res.cookie('refreshToken', refreshToken, {
@@ -154,6 +173,29 @@ export async function logoutUser(req, res) {
   })
   res.clearCookie('refreshToken')
   res.status(204)
+}
+
+export function verifyUserMail(req, res) {
+  const token = req.query.token
+
+  jwt.verify(token, 'EMAIL_JWT_SERCRET_KEY', async (err, decoded) => {
+    if (err) {
+      return res.status(400).json({
+        code: 'VALIDATION_ERROR',
+        message: 'Token expired'
+      })
+    }
+
+    const user = await db['User'].findOne({ where: { email: decoded.email } })
+    if (!user) {
+      return res.sendStatus(400)
+    }
+
+    // TODO: Добавить в модель поле is_email_verified
+    user.is_active = true
+    await user.save()
+    return res.sendStatus(200)
+  })
 }
 
 /* MIDDLEWARES */
