@@ -37,6 +37,11 @@ export default (sequelize, DataTypes) => {
         allowNull: false,
         unique: true
       },
+      is_email_verified: {
+        allowNull: false,
+        defaultValue: false,
+        type: DataTypes.BOOLEAN
+      },
       password_hash: {
         type: DataTypes.STRING,
         allowNull: false
