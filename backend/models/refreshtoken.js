@@ -17,9 +17,11 @@ export default (sequelize, DataTypes) => {
         allowNull: false,
         type: DataTypes.TEXT
       },
-      expires_at: {
-        allowNull: false,
-        type: DataTypes.DATE
+      user_id: {
+        type: DataTypes.INTEGER
+      },
+      ip: {
+        type: DataTypes.STRING
       }
     },
     {
