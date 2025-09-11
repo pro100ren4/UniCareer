@@ -4,6 +4,9 @@ import nodemailer from 'nodemailer'
 
 import db from '../models/index.js'
 
+// TODO: Добавить проверку того, что почта подтверждена для запросов
+// которые отправляют письма на почту
+
 // Mailhog - тестовый SMTP сервер, который не отправляет реальные письма и
 // используется только чтобы проверить почтовую систему.
 const transporter = nodemailer.createTransport({
@@ -195,7 +198,7 @@ export function verifyUserMail(req, res) {
     }
 
     // TODO: Добавить в модель поле is_email_verified
-    user.is_active = true
+    user.is_email_verified = true
     await user.save()
     return res.sendStatus(200)
   })
@@ -213,6 +216,7 @@ export async function requestResetPassword(req, res) {
   }
 
   const token = jwt.sign({ id: user.id, email: user.email }, 'EMAIL_JWT_SERCRET_KEY', { expiresIn: '1d' })
+  // FIXME: Исправить URL с API на Frontend
   const resetPassUrl = `http://localhost/api/auth/reset-password?token=${token}`
 
   await transporter.sendMail({
