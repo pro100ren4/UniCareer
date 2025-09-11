@@ -29,6 +29,11 @@ app.use(
 )
 // Доступ к body как к js объкту
 app.use(bodyParser.json())
+// Центральный обработчик ошибок
+app.use((err, req, res, next) => {
+  console.error(err)
+  res.status(500).send('Internal server error')
+})
 
 /* ########################## */
 /* #        Роутинг         # */
