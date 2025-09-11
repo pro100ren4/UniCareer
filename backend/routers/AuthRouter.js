@@ -1,7 +1,16 @@
 import { Router } from 'express'
 import { query } from 'express-validator'
 
-import { loginUser, logoutUser, refreshToken, registerNewUser, verifyUserMail } from '../controllers/AuthController.js'
+import {
+    checkAuthMiddleware,
+  loginUser,
+  logoutUser,
+  refreshToken,
+  registerNewUser,
+  requestResetPassword,
+  resetUserPassword,
+  verifyUserMail
+} from '../controllers/AuthController.js'
 
 export const AuthRouter = Router()
 
@@ -11,5 +20,7 @@ export const AuthRouter = Router()
 AuthRouter.post('/register', registerNewUser)
 AuthRouter.post('/login', loginUser)
 AuthRouter.post('/refresh', refreshToken)
-AuthRouter.post('/logout', logoutUser)
+AuthRouter.post('/logout', checkAuthMiddleware, logoutUser)
 AuthRouter.get('/verify-email', verifyUserMail)
+AuthRouter.post('/request-reset-password', requestResetPassword)
+AuthRouter.post('/reset-password', resetUserPassword)

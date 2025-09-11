@@ -4,29 +4,23 @@ import nodemailer from 'nodemailer'
 
 import db from '../models/index.js'
 
-// TODO:
-// - Подтверждение почты
-// - Сброс пороля по почте
-// FIXME:
-// - Исправить логику работы refresh токенов. Возможно следует вынести токены
-// в MongoDB?
-// - Вездесущий try catch надо добавить
-
+// Mailhog - тестовый SMTP сервер, который не отправляет реальные письма и
+// используется только чтобы проверить почтовую систему.
 const transporter = nodemailer.createTransport({
   host: 'mailhog',
   port: 1025,
   secure: false // Mailhog не требует TLS
 })
 
-async function generateTokens(user) {
+function genereteAccessToken(user) {
   const accessToken = jwt.sign({ id: user.id, email: user.email }, 'ACCESS_JWT_SECRET_KEY', { expiresIn: '15m' })
+  return accessToken
+}
+
+async function generateRefreshToken(user) {
   const refreshToken = jwt.sign({ id: user.id, email: user.email }, 'REFRESH_JWT_SECRET_KEY', { expiresIn: '1d' })
-  // XXX: Следует удалить expires_at поле из Модели, потому что эта информация
-  // хранится непосредственно в токене
-  const date = new Date()
-  date.setDate(date.getDate() + 1)
-  await db['RefreshToken'].create({ token: refreshToken, expires_at: date.toISOString().split('T')[0] })
-  return { accessToken, refreshToken }
+  await db['RefreshToken'].create({ user_id: user.id, token: refreshToken })
+  return refreshToken
 }
 
 /* REQUEST HANDLERS */
@@ -81,8 +75,6 @@ export async function registerNewUser(req, res) {
     })
   }
 
-  // console.log(user, user.email)
-
   const emailVerificationToken = jwt.sign({ email: user.email }, 'EMAIL_JWT_SERCRET_KEY', { expiresIn: '1d' })
   // FIXME: Исправить URL с API на Frontend
   const emailVerificationUrl = `http://localhost/api/auth/verify-email?token=${emailVerificationToken}`
@@ -94,7 +86,9 @@ export async function registerNewUser(req, res) {
     html: `Для подтверждения почты перейдите по ссылке: <a href="${emailVerificationUrl}">${emailVerificationUrl}</a>`
   })
 
-  const { refreshToken, accessToken } = await generateTokens(user)
+  const accessToken = genereteAccessToken(user)
+  const refreshToken = await generateRefreshToken(user)
+
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: false, // true для HTTPS
@@ -137,7 +131,11 @@ export async function loginUser(req, res) {
     })
   }
 
-  const { refreshToken, accessToken } = await generateTokens(user)
+  // Проверяем не залогинен ли уже пользователь
+  let refreshToken = await db['RefreshToken'].findOne({ where: { user_id: user.id } })
+  const accessToken = genereteAccessToken(user)
+
+  refreshToken = refreshToken?.token ?? (await generateRefreshToken(user))
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: false, // true для HTTPS
@@ -160,19 +158,24 @@ export async function refreshToken(req, res) {
     if (err) return res.sendStatus(401)
 
     const accessToken = jwt.sign({ id: user.id, email: user.email }, 'ACCESS_JWT_SECRET_KEY', { expiresIn: '15m' })
-    return res.status(204).json({ accessToken })
+    return res.status(200).json({ accessToken })
   })
 }
 
 export async function logoutUser(req, res) {
   const refreshToken = req.cookies.refreshToken
-  await db['RefreshToken'].destroy({
-    where: {
-      token: refreshToken
-    }
+  jwt.verify(refreshToken, 'REFRESH_JWT_SECRET_KEY', async (err, decoded) => {
+    if (err) return res.status(500).send('FUCK TOKEN')
+
+    await db['RefreshToken'].destroy({
+      where: {
+        user_id: decoded.id
+      }
+    })
+
+    res.clearCookie('refreshToken')
+    return res.sendStatus(204)
   })
-  res.clearCookie('refreshToken')
-  res.status(204)
 }
 
 export function verifyUserMail(req, res) {
@@ -198,13 +201,57 @@ export function verifyUserMail(req, res) {
   })
 }
 
+export async function requestResetPassword(req, res) {
+  const { email } = req.body
+
+  const user = await db['User'].findOne({ where: { email: email } })
+  if (!user) {
+    return res.status(404).json({
+      code: 'NOT_FOUND',
+      message: 'user not found'
+    })
+  }
+
+  const token = jwt.sign({ id: user.id, email: user.email }, 'EMAIL_JWT_SERCRET_KEY', { expiresIn: '1d' })
+  const resetPassUrl = `http://localhost/api/auth/reset-password?token=${token}`
+
+  await transporter.sendMail({
+    from: '"Tst App" <noreply@exameple.com>',
+    to: user.email,
+    subject: 'Cброс пароля',
+    html: `Для сброса пароля перейдите по ссылке: <a href="${resetPassUrl}">${resetPassUrl}</a>`
+  })
+  return res.sendStatus(200)
+}
+
+export function resetUserPassword(req, res) {
+  const { token } = req.query
+  const { newPassword } = req.body
+
+  jwt.verify(token, 'EMAIL_JWT_SERCRET_KEY', async (err, decoded) => {
+    if (err) {
+      return res.status(400).json({
+        code: 'VALIDATION_ERROR',
+        message: 'Bad credentials'
+      })
+    }
+
+    const password_hash = await bcrypt.hash(newPassword, 10)
+    const user = await db['User'].findByPk(decoded.id)
+    user.password_hash = password_hash
+    await user.save()
+
+    return res.sendStatus(200)
+  })
+}
+
 /* MIDDLEWARES */
 export function checkAuthMiddleware(req, res, next) {
   const authHeader = req.headers['authorization']
   const token = authHeader && authHeader.split(' ')[1]
   if (!token) return res.sendStatus(401)
 
-  jwt.verify(token, 'JWT_SERCRET_KEY', (err, user) => {
+  jwt.verify(token, 'ACCESS_JWT_SECRET_KEY', (err, user) => {
     if (err) return res.sendStatus(403)
     req.user = user
     next()
