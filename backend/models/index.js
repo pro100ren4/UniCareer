@@ -9,8 +9,8 @@ const __dirname = dirname(__filename);
 const basename = _basename(__filename);
 
 // Динамически импортируем конфиг (JSON файл)
-const configPath = join(__dirname, '..', 'config', 'config.json');
-const configData = await import(configPath, { assert: { type: 'json' } });
+const configPath = join(__dirname, '..', 'config', 'db.js');
+const configData = await import(configPath);
 const config = configData.default;
 
 const env = process.env.NODE_ENV || 'development';
