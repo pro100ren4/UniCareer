@@ -1,8 +1,6 @@
-'use strict';
-const {
-  Model
-} = require('sequelize');
-module.exports = (sequelize, DataTypes) => {
+'use strict'
+import { Model } from 'sequelize'
+export default (sequelize, DataTypes) => {
   class AdminLog extends Model {
     /**
      * Helper method for defining associations.
@@ -10,30 +8,31 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      AdminLog.belongsTo(models.User,
-        {
-          foreignKey: 'admin_id',
-          as: 'log',
-          onDelete: 'CASCADE'
-        }
-      )
+      AdminLog.belongsTo(models.User, {
+        foreignKey: 'admin_id',
+        as: 'log',
+        onDelete: 'CASCADE'
+      })
     }
   }
-  AdminLog.init({
-    admin_id: {
-      allowNull: false,
-      type: DataTypes.INTEGER,
+  AdminLog.init(
+    {
+      admin_id: {
+        allowNull: false,
+        type: DataTypes.INTEGER
+      },
+      action: {
+        allowNull: false,
+        type: DataTypes.STRING
+      },
+      target: {
+        type: DataTypes.STRING
+      }
     },
-    action: {
-      allowNull: false,
-      type: DataTypes.STRING,
-    },
-    target: {
-      type: DataTypes.STRING
-    },
-  }, {
-    sequelize,
-    modelName: 'AdminLog',
-  });
-  return AdminLog;
-};
+    {
+      sequelize,
+      modelName: 'AdminLog'
+    }
+  )
+  return AdminLog
+}

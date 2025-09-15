@@ -1,8 +1,6 @@
-'use strict';
-const {
-  Model
-} = require('sequelize');
-module.exports = (sequelize, DataTypes) => {
+'use strict'
+import { Model } from 'sequelize'
+export default (sequelize, DataTypes) => {
   class Student extends Model {
     /**
      * Helper method for defining associations.
@@ -10,63 +8,60 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      Student.belongsTo(models.User, 
-        { 
-          foreignKey: 'user_id', 
-          as: 'user', 
-          onDelete: 'CASCADE' 
-        }
-      )
-      Student.hasMany(models.Application,
-        {
-          foreignKey: 'student_id',
-          as: 'student',
-          onDelete: 'Cascade'
-        }
-      )
-      Student.hasMany(models.StudentTag,
-        {
-          foreignKey: 'student_id',
-          as: 'student',
-          onDelete: 'CASCADE'
-        }
-      )
+      Student.belongsTo(models.User, {
+        foreignKey: 'user_id',
+        as: 'user',
+        onDelete: 'CASCADE'
+      })
+      Student.hasMany(models.Application, {
+        foreignKey: 'student_id',
+        as: 'application_student',
+        onDelete: 'Cascade'
+      })
+      Student.hasMany(models.StudentTag, {
+        foreignKey: 'student_id',
+        as: 'studenttag_student',
+        onDelete: 'CASCADE'
+      })
     }
   }
-  Student.init({
-    user_id: {
-      primaryKey: true,
-      type: DataTypes.NUMBER,
-    },
-    full_name: {
-      allowNull: false,
-      type: DataTypes.STRING,
-    },
-    university: {
-      allowNull: false,
-      type: DataTypes.STRING,
-    },
-    faculty: {
-      type: DataTypes.STRING,
-    },
-    course: {
-      validate: {
-        min: 1,
+  Student.init(
+    {
+      user_id: {
+        primaryKey: true,
+        type: DataTypes.NUMBER
       },
-      type: DataTypes.NUMBER,
+      full_name: {
+        allowNull: false,
+        type: DataTypes.STRING
+      },
+      university: {
+        allowNull: false,
+        type: DataTypes.STRING
+      },
+      faculty: {
+        type: DataTypes.STRING
+      },
+      course: {
+        validate: {
+          min: 1
+        },
+        type: DataTypes.NUMBER
+      },
+      phone: {
+        type: DataTypes.STRING
+      },
+      about: {
+        type: DataTypes.TEXT
+      },
+      resume_path: {
+        type: DataTypes.TEXT
+      }
     },
-    phone: {
-      type: DataTypes.STRING,
-    },
-    about: {
-      type: DataTypes.TEXT,
-    },
-    resume_path: {
-      type: DataTypes.TEXT
-    },
-  }, {
-    sequelize,
-    modelName: 'Student',
-  });
-  return Student;
-};
+    {
+      sequelize,
+      modelName: 'Student'
+    }
+  )
+  return Student
+}

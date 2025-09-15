@@ -1,32 +1,33 @@
 'use strict'
 import { Model } from 'sequelize'
 export default (sequelize, DataTypes) => {
-  class Tag extends Model {
+  class RefreshToken extends Model {
     /**
      * Helper method for defining associations.
      * This method is not a part of Sequelize lifecycle.
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      Tag.hasMany(models.StudentTag, {
-        foreignKey: 'tag_id',
-        as: 'tag',
-        onDelete: 'CASCADE'
-      })
+      // define association here
     }
   }
-  Tag.init(
+  RefreshToken.init(
     {
-      name: {
-        unique: true,
+      token: {
         allowNull: false,
+        type: DataTypes.TEXT
+      },
+      user_id: {
+        type: DataTypes.INTEGER
+      },
+      ip: {
         type: DataTypes.STRING
       }
     },
     {
       sequelize,
-      modelName: 'Tag'
+      modelName: 'RefreshToken'
     }
   )
-  return Tag
+  return RefreshToken
 }

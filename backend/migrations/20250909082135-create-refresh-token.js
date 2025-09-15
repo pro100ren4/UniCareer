@@ -1,28 +1,20 @@
-'use strict';
+'use strict'
 /** @type {import('sequelize-cli').Migration} */
 export async function up(queryInterface, Sequelize) {
-  await queryInterface.createTable('Notifications', {
+  await queryInterface.createTable('RefreshTokens', {
     id: {
       allowNull: false,
       autoIncrement: true,
       primaryKey: true,
       type: Sequelize.INTEGER
     },
-    user_id: {
+    token: {
       allowNull: false,
-      type: Sequelize.INTEGER,
+      type: Sequelize.TEXT
     },
-    type: {
+    expires_at: {
       allowNull: false,
-      type: Sequelize.STRING,
-    },
-    payload: {
-      allowNull: false,
-      type: Sequelize.JSONB,
-    },
-    read: {
-      defaultValue: false,
-      type: Sequelize.BOOLEAN
+      type: Sequelize.DATE
     },
     createdAt: {
       allowNull: false,
@@ -32,8 +24,8 @@ export async function up(queryInterface, Sequelize) {
       allowNull: false,
       type: Sequelize.DATE
     }
-  });
+  })
 }
 export async function down(queryInterface, Sequelize) {
-  await queryInterface.dropTable('Notifications');
+  await queryInterface.dropTable('RefreshTokens')
 }
