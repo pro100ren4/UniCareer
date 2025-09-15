@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import nodemailer from 'nodemailer'
 
 import db from '../models/index.js'
+import config from '../config/auth.js'
 
 // TODO: Добавить проверку того, что почта подтверждена для запросов
 // которые отправляют письма на почту
@@ -16,12 +17,16 @@ const transporter = nodemailer.createTransport({
 })
 
 function genereteAccessToken(user) {
-  const accessToken = jwt.sign({ id: user.id, email: user.email }, 'ACCESS_JWT_SECRET_KEY', { expiresIn: '15m' })
+  const accessToken = jwt.sign({ id: user.id, email: user.email }, config.jwt.access.secretKey, {
+    expiresIn: config.jwt.access.expiresIn
+  })
   return accessToken
 }
 
 async function generateRefreshToken(user) {
-  const refreshToken = jwt.sign({ id: user.id, email: user.email }, 'REFRESH_JWT_SECRET_KEY', { expiresIn: '1d' })
+  const refreshToken = jwt.sign({ id: user.id, email: user.email }, config.jwt.refresh.secretKey, {
+    expiresIn: config.jwt.refresh.expiresIn
+  })
   await db['RefreshToken'].create({ user_id: user.id, token: refreshToken })
   return refreshToken
 }
@@ -78,7 +83,9 @@ export async function registerNewUser(req, res) {
     })
   }
 
-  const emailVerificationToken = jwt.sign({ email: user.email }, 'EMAIL_JWT_SERCRET_KEY', { expiresIn: '1d' })
+  const emailVerificationToken = jwt.sign({ email: user.email }, config.jwt.email.secretKey, {
+    expiresIn: config.jwt.email.expiresIn
+  })
   // FIXME: Исправить URL с API на Frontend
   const emailVerificationUrl = `http://localhost/api/auth/verify-email?token=${emailVerificationToken}`
 
@@ -157,17 +164,19 @@ export async function refreshToken(req, res) {
     return res.sendStatus(401)
   }
 
-  jwt.verify(refreshToken, 'REFRESH_JWT_SECRET_KEY', (err, user) => {
+  jwt.verify(refreshToken, config.jwt.refresh.secretKey, (err, user) => {
     if (err) return res.sendStatus(401)
 
-    const accessToken = jwt.sign({ id: user.id, email: user.email }, 'ACCESS_JWT_SECRET_KEY', { expiresIn: '15m' })
+    const accessToken = jwt.sign({ id: user.id, email: user.email }, config.jwt.access.secretKey, {
+      expiresIn: config.jwt.access.expiresIn
+    })
     return res.status(200).json({ accessToken })
   })
 }
 
 export async function logoutUser(req, res) {
   const refreshToken = req.cookies.refreshToken
-  jwt.verify(refreshToken, 'REFRESH_JWT_SECRET_KEY', async (err, decoded) => {
+  jwt.verify(refreshToken,  config.jwt.refresh.secretKey, async (err, decoded) => {
     if (err) return res.status(500).send('FUCK TOKEN')
 
     await db['RefreshToken'].destroy({
@@ -184,7 +193,7 @@ export async function logoutUser(req, res) {
 export function verifyUserMail(req, res) {
   const token = req.query.token
 
-  jwt.verify(token, 'EMAIL_JWT_SERCRET_KEY', async (err, decoded) => {
+  jwt.verify(token,  config.jwt.email.secretKey, async (err, decoded) => {
     if (err) {
       return res.status(400).json({
         code: 'VALIDATION_ERROR',
@@ -215,7 +224,7 @@ export async function requestResetPassword(req, res) {
     })
   }
 
-  const token = jwt.sign({ id: user.id, email: user.email }, 'EMAIL_JWT_SERCRET_KEY', { expiresIn: '1d' })
+  const token = jwt.sign({ id: user.id, email: user.email }, config.jwt.email.secretKey, { expiresIn: config.jwt.email.expiresIn })
   // FIXME: Исправить URL с API на Frontend
   const resetPassUrl = `http://localhost/api/auth/reset-password?token=${token}`
 
@@ -232,7 +241,7 @@ export function resetUserPassword(req, res) {
   const { token } = req.query
   const { newPassword } = req.body
 
-  jwt.verify(token, 'EMAIL_JWT_SERCRET_KEY', async (err, decoded) => {
+  jwt.verify(token, config.jwt.email.secretKey, async (err, decoded) => {
     if (err) {
       return res.status(400).json({
         code: 'VALIDATION_ERROR',
